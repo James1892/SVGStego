@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from .leb128 import leb_encode
 from .constants import EMBED_TAGS
 from .capacity import estimate_capacity
-from .utils import remove_namespace, copy_svg, process_attribute_values
+from .utils import remove_namespace, copy_svg, process_attribute_values 
 
 
 def convert_message_to_binary(message: str) -> str:
@@ -89,6 +89,9 @@ def embed_message(file: str, message: str) -> str | None:
 
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(original_svg_tag.strip() + modified_svg_body)
+
+        ET.ElementTree(root).write(
+            output_file, encoding="unicode", xml_declaration=False, method="xml")
 
         return output_file
 
