@@ -4,16 +4,14 @@ import xml.etree.ElementTree as ET
 from .leb128 import leb_encode
 from .constants import EMBED_TAGS
 from .capacity import estimate_capacity
-from .utils import remove_namespace, copy_svg, process_attribute_values 
+from .utils import remove_namespace, copy_svg, process_attribute_values
 
 
 def convert_message_to_binary(message: str) -> str:
     try:
         bits = ""
         for ch in message:
-            code_point = ord(ch)
-            byte_str = format(code_point, "08b")
-            bits = bits + byte_str
+            bits += format(ord(ch), "08b")
         return bits
     except Exception as error:
         print(f"Error: Failed to convert message to binary. {error}")
@@ -22,8 +20,8 @@ def convert_message_to_binary(message: str) -> str:
 
 def embed_message(file: str, message: str) -> str | None:
     try:
+        # Convert message to binary and add LEB128 length prefix
         binary_message = convert_message_to_binary(message)
-
         leb_bits = leb_encode(len(binary_message))
         full_binary = leb_bits + binary_message
 
@@ -32,54 +30,56 @@ def embed_message(file: str, message: str) -> str | None:
             print("Error: Message exceeds embedding capacity.")
             return None
 
+        # Copy original SVG
         output_file = copy_svg(file)
         if output_file is None:
             return None
 
+        # Parse SVG
         tree = ET.parse(output_file)
-
-        for elem in tree.iter():
-            tag_without_ns = remove_namespace(elem.tag)
-            elem.tag = tag_without_ns
-
         root = tree.getroot()
-        bit_index = 0
 
+        # Remove namespaces
+        for elem in tree.iter():
+            elem.tag = remove_namespace(elem.tag)
+
+        # Embed bits
+        bit_index = 0
         for elem in root.iter():
-            tag = elem.tag
-            if tag in EMBED_TAGS:
-                for attr in EMBED_TAGS[tag]:
+            if elem.tag in EMBED_TAGS:
+                for attr in EMBED_TAGS[elem.tag]:
                     if attr in elem.attrib:
                         original_attr = elem.attrib[attr]
                         new_attr, next_bit_index = process_attribute_values(
-                            original_attr,
-                            full_binary,
-                            bit_index
+                            original_attr, full_binary, bit_index
                         )
                         elem.set(attr, new_attr)
                         bit_index = next_bit_index
 
                         if bit_index >= len(full_binary):
                             break
-
                 if bit_index >= len(full_binary):
                     break
 
+        # Serialize SVG to string
+        modified_svg_str = ET.tostring(root, encoding="unicode", method="xml")
+
+        # Remove any whitespace before self-closing tags
+        modified_svg_str = re.sub(r"\s+/>", "/>", modified_svg_str)
+
+        # Preserve original <svg ...> line
         original_svg_tag = None
         with open(file, "r", encoding="utf-8") as f:
             for line in f:
                 if "<svg" in line:
-                    original_svg_tag = line
+                    original_svg_tag = line.strip()
                     break
 
         if original_svg_tag is None:
             print("Error: Could not find <svg> tag in original file.")
             return None
 
-        modified_svg_str = ET.tostring(root, encoding="unicode", method="xml")
-
-        modified_svg_str = re.sub(r"\s+/>", "/>", modified_svg_str)
-
+        # Extract body of SVG after root <svg> tag
         svg_start = modified_svg_str.find(">")
         if svg_start == -1:
             print("Error: Malformed SVG output.")
@@ -87,11 +87,9 @@ def embed_message(file: str, message: str) -> str | None:
 
         modified_svg_body = modified_svg_str[svg_start + 1 :]
 
+        # Write final SVG with cleaned self-closing tags
         with open(output_file, "w", encoding="utf-8") as f:
-            f.write(original_svg_tag.strip() + modified_svg_body)
-
-        ET.ElementTree(root).write(
-            output_file, encoding="unicode", xml_declaration=False, method="xml")
+            f.write(original_svg_tag + modified_svg_body)
 
         return output_file
 
